@@ -1,0 +1,203 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema",
+    "$id": "http://github.com/Kamefrede/sql2meili/schema.json",
+    "type": "object",
+    "title": "SQL2Meili Config Json Schema",
+    "description": "",
+    "default": {},
+    "examples": [
+        {
+            "database": {
+                "adapter": "postgresql",
+                "host": "localhost",
+                "port": 5432,
+                "username": "postgres",
+                "password": "password",
+                "database": "postgres",
+                "tables": [
+                    "movies"
+                ]
+            },
+            "meilisearch": {
+                "host": "localhost",
+                "api_key": "verycoolapikey",
+                "indexes": [
+                    "movies"
+                    ]
+            }
+        }
+    ],
+    "required": [
+        "database",
+        "meilisearch"
+    ],
+    "properties": {
+        "database": {
+            "$id": "sql2meili_database",
+            "type": "object",
+            "title": "Database Connection Schema",
+            "description": "The schema that is required to create a database connection",
+            "default": {},
+            "examples": [
+                {
+                    "adapter": "postgresql",
+                    "host": "localhost",
+                    "port": 5432,
+                    "username": "postgres",
+                    "password": "password",
+                    "database_name": "postgres",
+                    "tables": [
+                        "movies"
+                    ]
+                }
+            ],
+            "required": [
+                "adapter",
+                "host",
+                "username",
+                "password",
+                "database_name",
+                "tables"
+            ],
+            "properties": {
+                "adapter": {
+                    "$id": "sql2meili_database_adapter",
+                    "type": "string",
+                    "title": "Database Adapter",
+                    "description": "Defines what adapter to use for connection to the database",
+                    "default": "",
+                    "examples": [
+                        "postgresql",
+                        "mysql",
+                        "sqlite"
+                    ]
+                },
+                "host": {
+                    "$id": "sql2meili_database_host",
+                    "type": "string",
+                    "title": "Database Host",
+                    "description": "Defines the host where the database is located",
+                    "default": "",
+                    "examples": [
+                        "localhost",
+                        "127.0.0.1"
+                    ]
+                },
+                "port": {
+                    "$id": "sql2meili_database_port",
+                    "type": "integer",
+                    "title": "Database Port",
+                    "description": "Defines the port where the database server is accessible",
+                    "default": 5432,
+                    "examples": [
+                        5432
+                    ]
+                },
+                "username": {
+                    "$id": "sql2meili_database_username",
+                    "type": "string",
+                    "title": "Database Username",
+                    "description": "Defines what user to log in as when connecting to the database",
+                    "default": "",
+                    "examples": [
+                        "postgres"
+                    ]
+                },
+                "password": {
+                    "$id": "sql2meili_database_password",
+                    "type": "string",
+                    "title": "Database Password",
+                    "description": "Defines the password of the user that is used when connecting to the database",
+                    "default": "",
+                    "examples": [
+                        "password"
+                    ]
+                },
+                "database_name": {
+                    "$id": "sql2meili_database_name",
+                    "type": "string",
+                    "title": "Database Name",
+                    "description": "Defines the database name to access when exporting the tables",
+                    "default": "",
+                    "examples": [
+                        "postgres"
+                    ]
+                },
+                "tables": {
+                    "$id": "sql2meili_database_tables",
+                    "type": "array",
+                    "title": "Database tables",
+                    "description": "Defines which tables to pull export data from",
+                    "default": [],
+                    "examples": [
+                        [
+                            "movies"
+                        ]
+                    ],
+                    "additionalItems": true
+                }
+            },
+            "additionalProperties": false
+        },
+        "meilisearch": {
+            "$id": "sql2meili_meilisearch",
+            "type": "object",
+            "title": "Meilisearch Connection Schema",
+            "description": "The schema that is required to create a Meilisearch connection",
+            "default": {},
+            "examples": [
+                {
+                    "host": "localhost",
+                    "api_key": "verycoolapikey",
+                    "indexes": [
+                        "movies"
+                    ]
+                }
+            ],
+            "required": [
+                "host",
+                "api_key"
+            ],
+            "properties": {
+                "host": {
+                    "$id": "sql2meili_meilisearch_host",
+                    "type": "string",
+                    "title": "MeiliSearch Host",
+                    "description": "Defines the host where the meilisearch instance is located",
+                    "default": "",
+                    "examples": [
+                        "localhost",
+                        "127.0.0.1"
+                    ]
+                },
+                "api_key": {
+                    "$id": "sql2meili_meilisearch_api_key",
+                    "type": "string",
+                    "title": "MeiliSearch API Key",
+                    "description": "Defines the API key to be used when connecting to the MeiliSearch instance",
+                    "default": "",
+                    "examples": [
+                        "verycoolapikey",
+                        "realapikeyperhaps",
+                        "hunter2"
+                    ]
+                },
+                "indexes": {
+                    "$id": "sql2meili_meilisearch_indexes",
+                    "type": "array",
+                    "title": "Meilisearch Indexes",
+                    "description": "If this array is not present, SQL2Meili will assume the table names are also the same as the index names",
+                    "default": [],
+                    "examples": [
+                        [
+                            "movies"
+                        ]
+                    ],
+                    "additionalItems": true
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}
