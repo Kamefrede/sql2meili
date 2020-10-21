@@ -18,9 +18,6 @@ from sqlalchemy import engine, create_engine, MetaData, func, select
 
 Json = Dict
 
-max_chunk_size: int = 5000
-logging.getLogger().setLevel(logging.INFO)
-
 
 class DatabaseConn:
     """
@@ -61,7 +58,7 @@ class DatabaseConn:
         """Checks if all the tables defined in the config file
         exist in the database
         """
-        tables_not_present = list(
+        tables_not_present: List = list(
             filter(lambda tab: tab not in self.metadata.tables, self.tables))
         if len(tables_not_present) > 0:
             raise KeyError(
@@ -128,7 +125,7 @@ class MeilisearchConn:
             for table in db_con.tables[len(db_con.tables) - diff:]:
                 self.indexes.append(table)
 
-        indexes_not_present = list(
+        indexes_not_present: List = list(
             filter(
                 lambda idx: idx not in list(
                     map(
@@ -144,43 +141,43 @@ class MeilisearchConn:
 
 
 def create_connection_from_dict(
-        json_data: Json) -> (DatabaseConn, MeilisearchConn):
+        json_data: Json, schema_path: str) -> (DatabaseConn, MeilisearchConn):
     """
     This function validates the configuration data against a schema
     and if it is successful, instantiates a DatabaseConn and a
     MeilisearchConn class.
     It also proceeds to create a connection to the database and also
     validates both the indexes and tables of the instantiated objects
-    :return:
     """
-    validate_json(json_data)
-    database = DatabaseConn(**json_data["database"])
-    meili = MeilisearchConn(**json_data["meilisearch"])
+    validate_json(json_data, schema_path)
+    database: DatabaseConn = DatabaseConn(**json_data["database"])
+    meili: MeilisearchConn = MeilisearchConn(**json_data["meilisearch"])
     database.create_engine()
     meili.validate_indexes(database)
     database.validate_tables()
     return database, meili
 
 
-def get_schema() -> Json:
+def get_schema(schema_path: str) -> Json:
     """Loads the schema from a file and returns it"""
-    with open("schema.json", "r") as schema_file:
-        schema = json.load(schema_file)
+    with open(schema_path, "r") as schema_file:
+        schema: Json = json.load(schema_file)
     if not schema:
         raise ValueError("Schema file was empty or failed to open.")
     return schema
 
 
-def validate_json(json_data: Json) -> None:
+def validate_json(json_data: Json, schema_path: str) -> None:
     """Validates a Json dict against the schema"""
-    script_schema = get_schema()
+    script_schema: Json = get_schema(schema_path)
     try:
         validate(instance=json_data, schema=script_schema)
     except jsonschema.exceptions.ValidationError as error:
         logging.critical(error)
 
 
-def export_tables(db_con: DatabaseConn, meili: MeilisearchConn) -> None:
+def export_tables(db_con: DatabaseConn, meili: MeilisearchConn,
+                  max_chunk_size: int) -> None:
     """Exports all the tables to their respective MeiliSearch indexes in chunks of
     5000 elements at a time"""
     for idx, table_name in enumerate(db_con.tables):
@@ -211,14 +208,15 @@ def export_tables(db_con: DatabaseConn, meili: MeilisearchConn) -> None:
                      meili_index)
 
 
-def run_with_config_file(file_path: str):
+def run_with_config_file(file_path: str, schema_path: str,
+                         max_chunk_size: int):
     """Loads the configuration from a given path,
     and runs the export process
     """
     with open(file_path) as json_file:
         data: Json = json.load(json_file)
-        db_conn, meili_conn = create_connection_from_dict(data)
-        export_tables(db_conn, meili_conn)
+        db_conn, meili_conn = create_connection_from_dict(data, schema_path)
+        export_tables(db_conn, meili_conn, max_chunk_size)
     logging.info("Finished exporting all tables to Meilisearch")
 
 
@@ -227,6 +225,7 @@ def main():
     Parses the command line arguments to ensure that a valid
     config file is passed
     """
+    logging.getLogger().setLevel(logging.INFO)
     parser = argparse.ArgumentParser(
         description="Exports tables from a database to a Meilisearch instance")
     parser.add_argument(
@@ -237,14 +236,47 @@ def main():
         action="store",
         help="Specifies the path for the config file",
         required=True,
+        type=str,
+    )
+    parser.add_argument(
+        "-s",
+        "--schema",
+        dest="schema",
+        metavar="SCHEMA_FILE_PATH",
+        action="store",
+        help="Specifies the path for the schema file",
+        required=False,
+        type=str,
+    )
+    parser.add_argument(
+        "-cs",
+        "--chunk_size",
+        dest="chunk_size",
+        metavar="CHUNK_SIZE",
+        action="store",
+        help="Specifies the max number of rows to export in a single chunk",
+        required=False,
+        type=int,
     )
     args = parser.parse_args()
+    file_path: str = args.path
+    schema_path: str = "schema.json"
+    max_chunk_size: int = 5000
 
-    file_path = args.path
-    if not isfile(file_path):
-        logging.critical("Specified path is not a valid file!")
+    if args.chunk_size:
+        max_chunk_size = args.chunk_size
+    if args.schema:
+        schema_path = args.schema
+
+    if not isfile(schema_path):
+        logging.critical("Specified schema file path is not a valid file!")
         sys_exit(2)
-    run_with_config_file(file_path)
+
+    if not isfile(file_path):
+        logging.critical("Specified config file path is not a valid file!")
+        sys_exit(2)
+
+    run_with_config_file(file_path, schema_path, max_chunk_size)
 
 
 if __name__ == "__main__":
