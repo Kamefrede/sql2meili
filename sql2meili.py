@@ -1,3 +1,8 @@
+"""
+This module provides a way to export SQL tables to a Meilisearch
+instance in an easy and fast way.
+"""
+
 import argparse
 import json
 import logging
@@ -18,30 +23,71 @@ logging.getLogger().setLevel(logging.INFO)
 
 
 class DatabaseConn:
+    """
+    Class that holds all the data and
+    relevant methods pertaining to the
+    database
+    """
+
     database_url: str
     tables: List[str]
     database_engine: engine
     metadata: MetaData
 
-    def __init__(self, adapter: str, host: str, port: int, username: str,
-                 password: str, database_name: str, tables: List[str]) -> None:
+    def __init__(
+        self,
+        adapter: str,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        database_name: str,
+        tables: List[str],
+    ) -> None:
         self.tables = tables
-        self.database_url = f"{adapter}://{username}:{password}@{host}:{port}/{database_name}"
+        self.database_url = (
+            f"{adapter}://{username}:{password}@{host}:{port}/{database_name}")
+
+    def create_engine(self) -> None:
+        """
+        Creates an engine that's used to connect to the database
+        and introspects the database
+        """
         self.database_engine = create_engine(self.database_url)
         self.metadata = MetaData()
         self.metadata.reflect(bind=self.database_engine)
 
-    def get_engine(self) -> engine:
-        return self.database_engine
+    def validate_tables(self) -> None:
+        """Checks if all the tables defined in the config file
+        exist in the database
+        """
+        tables_not_present = list(
+            filter(lambda tab: tab not in self.metadata.tables, self.tables))
+        if len(tables_not_present) > 0:
+            raise KeyError(
+                f"The following tables do not exist in the database: {tables_not_present}"
+            )
 
-    def get_tables(self) -> List[str]:
-        return self.tables
-
-    def get_tables_size(self) -> int:
-        return len(self.tables)
+    def get_primary_key_name(self, table_name: str):
+        """Gets the name of the first primary key of a given table
+        As far as I know, MeiliSearch only supports one primary key
+        Will be updated to support more than one if needed
+        """
+        return next(
+            map(
+                lambda tab: tab.primary_key.columns.values()[0].name,
+                filter(lambda tb: tb.name == table_name,
+                       self.metadata.sorted_tables),
+            ))
 
 
 class MeilisearchConn:
+    """
+    Class that holds all the data and
+    relevant methods pertaining to the
+    Meilisearch connection
+    """
+
     indexes: List[str]
     meilisearch_client: meilisearch.Client
 
@@ -49,28 +95,76 @@ class MeilisearchConn:
         self.indexes = indexes
         self.meilisearch_client = meilisearch.Client(host, api_key)
 
-    def get_indexes(self) -> List[str]:
-        return self.indexes
+    def upload_data_to_index(self, index: str, data: List[Dict],
+                             primary_key: str):
+        """
+        Uploads a list to an index
+        :param index: Name of the index to upload the table to
+        :param data: List of dicts containing the data to be uploaded
+        :param primary_key: Primary key of the index
+        """
+        self.meilisearch_client.get_index(index).update_documents(
+            data, primary_key=primary_key)
+        logging.info("Exported %d rows to Meilisearch index %s", len(data),
+                     index)
 
-    def get_client(self) -> meilisearch.Client:
-        return self.meilisearch_client
+    def validate_indexes(self, db_con: DatabaseConn):
+        """
+        Checks if all the indexes specified in the config file
+        exist in the given Meilisearch instance
+        Also checks if the number of tables is mismatched and
+        if so raises an exception.
+        This script assumes that if there are more specified
+        tables than there are indexes, that the corresponding indexes
+        share the same name
+        """
+        diff: int = len(db_con.tables) - len(self.indexes)
+        if diff == 0:
+            return
+        if diff < 0:
+            raise jsonschema.exceptions.ValidationError(
+                "There cannot be more indexes than tables defined.")
+        if diff > 0:
+            for table in db_con.tables[len(db_con.tables) - diff:]:
+                self.indexes.append(table)
 
-    def get_indexes_size(self) -> int:
-        return len(self.indexes)
+        indexes_not_present = list(
+            filter(
+                lambda idx: idx not in list(
+                    map(
+                        lambda index: index["uid"],
+                        self.meilisearch_client.get_indexes(),
+                    )),
+                self.indexes,
+            ))
+        if len(indexes_not_present) > 0:
+            raise KeyError(
+                f"The following indexes are not present in Meilisearch: {indexes_not_present}"
+            )
 
 
 def create_connection_from_dict(
         json_data: Json) -> (DatabaseConn, MeilisearchConn):
+    """
+    This function validates the configuration data against a schema
+    and if it is successful, instantiates a DatabaseConn and a
+    MeilisearchConn class.
+    It also proceeds to create a connection to the database and also
+    validates both the indexes and tables of the instantiated objects
+    :return:
+    """
     validate_json(json_data)
-    database = DatabaseConn(**json_data['database'])
-    meili = MeilisearchConn(**json_data['meilisearch'])
-    validate_indexes(database, meili)
-    validate_tables(database)
+    database = DatabaseConn(**json_data["database"])
+    meili = MeilisearchConn(**json_data["meilisearch"])
+    database.create_engine()
+    meili.validate_indexes(database)
+    database.validate_tables()
     return database, meili
 
 
 def get_schema() -> Json:
-    with open('schema.json', 'r') as schema_file:
+    """Loads the schema from a file and returns it"""
+    with open("schema.json", "r") as schema_file:
         schema = json.load(schema_file)
     if not schema:
         raise ValueError("Schema file was empty or failed to open.")
@@ -78,6 +172,7 @@ def get_schema() -> Json:
 
 
 def validate_json(json_data: Json) -> None:
+    """Validates a Json dict against the schema"""
     script_schema = get_schema()
     try:
         validate(instance=json_data, schema=script_schema)
@@ -85,93 +180,41 @@ def validate_json(json_data: Json) -> None:
         logging.critical(error)
 
 
-def validate_indexes(db: DatabaseConn, meili: MeilisearchConn) -> None:
-    diff: int = db.get_tables_size() - meili.get_indexes_size()
-    if diff == 0:
-        return
-    if diff < 0:
-        raise jsonschema.exceptions.ValidationError(
-            "There cannot be more indexes than tables defined.")
-    else:
-        for table in db.get_tables()[db.get_tables_size() - diff:]:
-            meili.get_indexes().append(table)
-
-    indexes_not_present = list(
-        filter(
-            lambda idx: idx not in list(
-                map(lambda index: index['uid'],
-                    meili.get_client().get_indexes())), meili.get_indexes()))
-    if len(indexes_not_present) > 0:
-        raise KeyError(
-            f"The following indexes defined in the config file are not present: {indexes_not_present}"
-        )
-
-
-def validate_tables(db: DatabaseConn) -> None:
-    tables_not_present = list(
-        filter(lambda tab: tab not in db.metadata.tables, db.get_tables()))
-    if len(tables_not_present) > 0:
-        raise KeyError(
-            f"The following tables defined in the config file are not present: {tables_not_present}"
-        )
-
-
-def push_table_to_meili(meili: MeilisearchConn, index: str, data: List,
-                        primary_key: str):
-    meili.get_client().get_index(index).update_documents(
-        data, primary_key=primary_key)
-    logging.info(f"Exported {len(data)} rows to Meilisearch index {index}")
-    return
-
-
-def export_tables(db: DatabaseConn, meili: MeilisearchConn) -> None:
-    for idx, table_name in enumerate(db.get_tables()):
-        logging.info(f"Starting the export of table {table_name}")
-        primary_key_name: str = get_primary_key_name(db, table_name)
-        meili_index: str = meili.get_indexes()[idx]
-        total_size: int = db.get_engine().execute(
-            select([func.count()
-                    ]).select_from(db.metadata.tables[table_name])).scalar()
+def export_tables(db_con: DatabaseConn, meili: MeilisearchConn) -> None:
+    """Exports all the tables to their respective MeiliSearch indexes in chunks of
+    5000 elements at a time"""
+    for idx, table_name in enumerate(db_con.tables):
+        logging.info("Starting the export of table %s", table_name)
+        primary_key_name: str = db_con.get_primary_key_name(table_name)
+        meili_index: str = meili.indexes[idx]
+        total_size: int = db_con.database_engine.execute(
+            select([func.count()]).select_from(
+                db_con.metadata.tables[table_name])).scalar()
         if total_size < max_chunk_size:
             values: List = [
-                dict(row) for row in db.get_engine().execute(
-                    db.metadata.tables[table_name].select())
+                dict(row) for row in db_con.database_engine.execute(
+                    db_con.metadata.tables[table_name].select())
             ]
-            push_table_to_meili(meili, meili_index, values, primary_key_name)
+            meili.upload_data_to_index(meili_index, values, primary_key_name)
         else:
             chunks: int = ceil(total_size / max_chunk_size)
             for chunk in range(chunks):
                 values: List = [
-                    dict(row) for row in db.get_engine().execute(
+                    dict(row) for row in db_con.database_engine.execute(
                         select(["*"]).select_from(
-                            db.metadata.tables[table_name]).offset(
+                            db_con.metadata.tables[table_name]).offset(
                                 chunk * max_chunk_size).limit(max_chunk_size))
                 ]
-                push_table_to_meili(meili, meili_index, values,
-                                    primary_key_name)
-        logging.info(
-            f"Finished exporting table {table_name} to index {meili_index}")
-    return
-
-
-def get_primary_key_name(db: DatabaseConn, table_name: str):
-    return next(
-        map(
-            lambda tab: tab.primary_key.columns.values()[0].name,
-            filter(lambda tb: tb.name == table_name,
-                   db.metadata.sorted_tables)))
-
-
-def print_usage():
-    print("Incorrect options.")
-    print("The usage is:")
-    print("python sql2meili.py --config <filename>")
-    print("python sql2meili.py -c <filename>")
-    print("python sql2meili.py --help")
-    print("python sql2meili.py -h")
+                meili.upload_data_to_index(meili_index, values,
+                                           primary_key_name)
+        logging.info("Finished exporting table %s to index %s", table_name,
+                     meili_index)
 
 
 def run_with_config_file(file_path: str):
+    """Loads the configuration from a given path,
+    and runs the export process
+    """
     with open(file_path) as json_file:
         data: Json = json.load(json_file)
         db_conn, meili_conn = create_connection_from_dict(data)
@@ -180,15 +223,21 @@ def run_with_config_file(file_path: str):
 
 
 def main():
+    """
+    Parses the command line arguments to ensure that a valid
+    config file is passed
+    """
     parser = argparse.ArgumentParser(
         description="Exports tables from a database to a Meilisearch instance")
-    parser.add_argument('-c',
-                        '--config',
-                        dest="path",
-                        metavar="FILE_PATH",
-                        action="store",
-                        help='Specifies the path for the config file',
-                        required=True)
+    parser.add_argument(
+        "-c",
+        "--config",
+        dest="path",
+        metavar="FILE_PATH",
+        action="store",
+        help="Specifies the path for the config file",
+        required=True,
+    )
     args = parser.parse_args()
 
     file_path = args.path
@@ -198,5 +247,5 @@ def main():
     run_with_config_file(file_path)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
