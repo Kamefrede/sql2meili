@@ -5,13 +5,14 @@ verify_ssl = true
 
 [dev-packages]
 pylint = "*"
-psycopg2 = "*"
 
 [packages]
 meilisearch = "*"
 sqlalchemy = "*"
 jsonschema = "*"
-
+psycopg2 = "*"
+mysql-python = "*"
 
 [requires]
 python_version = "3.8"
+

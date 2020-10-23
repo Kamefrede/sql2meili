@@ -45,14 +45,17 @@ class DatabaseConn:
         self.database_url = (
             f"{adapter}://{username}:{password}@{host}:{port}/{database_name}")
 
-    def create_engine(self) -> None:
+    def connect_to_db(self) -> None:
         """
         Creates an engine that's used to connect to the database
         and introspects the database
         """
+        logging.info("Connecting to SQL database...")
         self.database_engine = create_engine(self.database_url)
         self.metadata = MetaData()
         self.metadata.reflect(bind=self.database_engine)
+        logging.info("Connected to database at %s",
+                     self.database_engine.engine)
 
     def validate_tables(self) -> None:
         """Checks if all the tables defined in the config file
@@ -152,7 +155,7 @@ def create_connection_from_dict(
     validate_json(json_data, schema_path)
     database: DatabaseConn = DatabaseConn(**json_data["database"])
     meili: MeilisearchConn = MeilisearchConn(**json_data["meilisearch"])
-    database.create_engine()
+    database.connect_to_db()
     meili.validate_indexes(database)
     database.validate_tables()
     return database, meili
@@ -218,6 +221,10 @@ def run_with_config_file(file_path: str, schema_path: str,
         db_conn, meili_conn = create_connection_from_dict(data, schema_path)
         export_tables(db_conn, meili_conn, max_chunk_size)
     logging.info("Finished exporting all tables to Meilisearch")
+    logging.info(
+        "You can browse the exported data at %s",
+        meili_conn.meilisearch_client.config.url,
+    )
 
 
 def main():
