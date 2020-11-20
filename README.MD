@@ -2,7 +2,9 @@
 
 Installation
 ---
-`$ pipenv install sql2meili`
+Clone the repository and change directory to it.
+
+Run `$ pipenv install` and wait for it to finish.
 
 By default sql2meili comes with database engines for both PostgreSQL, MySQL and SQLite
 
