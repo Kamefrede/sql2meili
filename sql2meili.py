@@ -202,7 +202,7 @@ def export_tables(db_con: DatabaseConn, meili: MeilisearchConn,
                 values: List = [
                     dict(row) for row in db_con.database_engine.execute(
                         select(["*"]).select_from(
-                            db_con.metadata.tables[table_name]).offset(
+                            db_con.metadata.tables[table_name]).order_by(primary_key_name).offset(
                                 chunk * max_chunk_size).limit(max_chunk_size))
                 ]
                 meili.upload_data_to_index(meili_index, values,
